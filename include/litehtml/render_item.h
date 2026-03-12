@@ -27,6 +27,7 @@ namespace litehtml
         margins						                m_borders;
         position					                m_pos;
         bool                                        m_skip;
+        pixel_t                                     m_last_outline_parent_width = -1; // Opt 9: dirty tracking
         std::vector<std::shared_ptr<render_item>>   m_positioned;
     	std::shared_ptr<scroll_view>				m_scroll_view;
 

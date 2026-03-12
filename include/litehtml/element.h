@@ -8,6 +8,7 @@
 #include "types.h"
 #include "stylesheet.h"
 #include "css_properties.h"
+#include "css_transition.h"
 
 namespace litehtml
 {
@@ -32,6 +33,10 @@ namespace litehtml
 		css_properties							m_css;
 		std::list<std::weak_ptr<render_item>>	m_renders;
 		used_selector::vector					m_used_styles;
+		bool									m_styles_dirty = false; // Opt 6: targeted style update
+	public:
+		std::vector<active_transition>			m_active_transitions;
+	protected:
 
 		virtual void select_all(const css_selector& selector, elements_list& res);
 		element::ptr _add_before_after(int type, const style& style);
@@ -132,6 +137,7 @@ namespace litehtml
 		std::tuple<element::ptr, element::ptr, element::ptr> split_inlines();
 		virtual std::shared_ptr<render_item> create_render_item(const std::shared_ptr<render_item>& parent_ri);
 		bool requires_styles_update();
+		void set_styles_dirty() { m_styles_dirty = true; }
 		void add_render(const std::shared_ptr<render_item>& ri);
 		bool find_styles_changes( position::vector& redraw_boxes);
 		element::ptr add_pseudo_before(const style& style)

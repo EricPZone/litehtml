@@ -190,6 +190,7 @@ std::shared_ptr<render_item> element::create_render_item(const std::shared_ptr<r
 
 bool element::requires_styles_update()
 {
+	if (m_styles_dirty) return true; // Opt 6: honor dirty flag from pseudo-class propagation
 	for (const auto& used_style : m_used_styles)
 	{
 		if(used_style->m_selector->is_media_valid())
@@ -242,9 +243,114 @@ bool element::find_styles_changes( position::vector& redraw_boxes)
 			fetch_boxes(el);
 		}
 
+		// Snapshot old values before style recomputation (for transitions)
+		web_color old_bg_color = m_css.get_bg().m_color;
+		float old_opacity = m_css.get_opacity();
+		float old_scale = m_css.get_transform_scale();
+		auto old_transitions = m_css.get_transitions();
+
 		refresh_styles();
-		compute_styles();
+		compute_styles(false);
+		m_styles_dirty = false; // Opt 6: clear after processing
+
+		// Check for transitions: if element has transition specs and values changed
+		const auto& new_transitions = m_css.get_transitions();
+		const auto& specs = new_transitions.empty() ? old_transitions : new_transitions;
+
+		if (!specs.empty())
+		{
+			web_color new_bg_color = m_css.get_bg().m_color;
+			float new_opacity = m_css.get_opacity();
+
+			for (const auto& spec : specs)
+			{
+				// background-color transition
+				if (spec.matches(_background_color_) &&
+					!(old_bg_color.red == new_bg_color.red &&
+					  old_bg_color.green == new_bg_color.green &&
+					  old_bg_color.blue == new_bg_color.blue &&
+					  old_bg_color.alpha == new_bg_color.alpha))
+				{
+					// Check if there's already a transition for this property — pick up from current value
+					web_color start_color = old_bg_color; // snapshot = current interpolated value
+					for (auto it = m_active_transitions.begin(); it != m_active_transitions.end(); ++it)
+					{
+						if (it->property == _background_color_)
+						{
+							// mid-transition reversal: keep old_bg_color (current interpolated)
+							m_active_transitions.erase(it);
+							break;
+						}
+					}
+
+					active_transition tr;
+					tr.property = _background_color_;
+					tr.duration_ms = spec.duration_ms;
+					tr.timing = spec.timing;
+					tr.old_color = start_color;
+					tr.new_color = new_bg_color;
+					m_active_transitions.push_back(tr);
+
+					// Restore old color — tick() will interpolate
+					m_css.get_bg_w().m_color = start_color;
+				}
+
+				// opacity transition
+				if (spec.matches(_opacity_) && std::abs(old_opacity - new_opacity) > 1e-3f)
+				{
+					float start_opacity = old_opacity; // snapshot = current interpolated value
+					for (auto it = m_active_transitions.begin(); it != m_active_transitions.end(); ++it)
+					{
+						if (it->property == _opacity_)
+						{
+							// mid-transition reversal: keep old_opacity (current interpolated)
+							m_active_transitions.erase(it);
+							break;
+						}
+					}
+
+					active_transition tr;
+					tr.property = _opacity_;
+					tr.duration_ms = spec.duration_ms;
+					tr.timing = spec.timing;
+					tr.old_opacity = start_opacity;
+					tr.new_opacity = new_opacity;
+					m_active_transitions.push_back(tr);
+
+					m_css.set_opacity(start_opacity);
+				}
+
+				// transform (scale) transition
+				float new_scale = m_css.get_transform_scale();
+				if (spec.matches(_transform_) && std::abs(old_scale - new_scale) > 1e-4f)
+				{
+					float start_scale = old_scale; // snapshot = current interpolated value
+					for (auto it = m_active_transitions.begin(); it != m_active_transitions.end(); ++it)
+					{
+						if (it->property == _transform_)
+						{
+							// mid-transition reversal: keep old_scale (current interpolated)
+							m_active_transitions.erase(it);
+							break;
+						}
+					}
+
+					active_transition tr;
+					tr.property = _transform_;
+					tr.duration_ms = spec.duration_ms;
+					tr.timing = spec.timing;
+					tr.old_scale = start_scale;
+					tr.new_scale = new_scale;
+					m_active_transitions.push_back(tr);
+
+					m_css.set_transform_scale(start_scale);
+				}
+			}
+		}
+
 		ret = true;
+	} else {
+		m_styles_dirty = false; // Opt 6: clear even if no update needed
 	}
 	for (auto& el : m_children)
 	{

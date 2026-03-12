@@ -59,6 +59,10 @@ litehtml::pixel_t litehtml::render_item::render(pixel_t x, pixel_t y, const cont
 
 void litehtml::render_item::calc_outlines( pixel_t parent_width )
 {
+    // Opt 9: Skip recalculation if parent width hasn't changed
+    if (m_last_outline_parent_width == parent_width) return;
+    m_last_outline_parent_width = parent_width;
+
     m_padding.left	= m_element->css().get_padding().left.calc_percent(parent_width);
     m_padding.right	= m_element->css().get_padding().right.calc_percent(parent_width);
 
@@ -769,42 +773,43 @@ void litehtml::render_item::draw_stacking_context( uint_ptr hdc, pixel_t x, pixe
 {
     if(!is_visible()) return;
 
-    std::map<int, bool> z_indexes;
-    if(with_positioned)
+    // Opt 8: Use sorted vector instead of std::map (avoids per-frame heap alloc)
+    if(with_positioned && !m_positioned.empty())
     {
+        // Collect unique z-indexes into a small stack-local vector
+        int z_buf[32];
+        int z_count = 0;
         for(const auto& idx : m_positioned)
         {
-            z_indexes[idx->src_el()->css().get_z_index()];
+            int z = idx->src_el()->css().get_z_index();
+            // Insert unique
+            bool found = false;
+            for (int i = 0; i < z_count; i++) { if (z_buf[i] == z) { found = true; break; } }
+            if (!found && z_count < 32) z_buf[z_count++] = z;
+        }
+        // Sort ascending
+        std::sort(z_buf, z_buf + z_count);
+
+        for (int i = 0; i < z_count; i++) {
+            if (z_buf[i] < 0) draw_children(hdc, x, y, clip, draw_positioned, z_buf[i]);
         }
 
-        for(const auto& idx : z_indexes)
-        {
-            if(idx.first < 0)
-            {
-                draw_children(hdc, x, y, clip, draw_positioned, idx.first);
-            }
+        draw_children(hdc, x, y, clip, draw_block, 0);
+        draw_children(hdc, x, y, clip, draw_floats, 0);
+        draw_children(hdc, x, y, clip, draw_inlines, 0);
+
+        for (int i = 0; i < z_count; i++) {
+            if (z_buf[i] == 0) draw_children(hdc, x, y, clip, draw_positioned, 0);
+        }
+        for (int i = 0; i < z_count; i++) {
+            if (z_buf[i] > 0) draw_children(hdc, x, y, clip, draw_positioned, z_buf[i]);
         }
     }
-    draw_children(hdc, x, y, clip, draw_block, 0);
-    draw_children(hdc, x, y, clip, draw_floats, 0);
-    draw_children(hdc, x, y, clip, draw_inlines, 0);
-    if(with_positioned)
+    else
     {
-        for(auto& z_index : z_indexes)
-        {
-            if(z_index.first == 0)
-            {
-                draw_children(hdc, x, y, clip, draw_positioned, z_index.first);
-            }
-        }
-
-        for(auto& z_index : z_indexes)
-        {
-            if(z_index.first > 0)
-            {
-                draw_children(hdc, x, y, clip, draw_positioned, z_index.first);
-            }
-        }
+        draw_children(hdc, x, y, clip, draw_block, 0);
+        draw_children(hdc, x, y, clip, draw_floats, 0);
+        draw_children(hdc, x, y, clip, draw_inlines, 0);
     }
 }
 

@@ -7,6 +7,7 @@
 #include "borders.h"
 #include "css_offsets.h"
 #include "background.h"
+#include "css_transition.h"
 
 namespace litehtml
 {
@@ -93,6 +94,10 @@ namespace litehtml
 		caption_side			m_caption_side;
 
 		int 					m_order;
+
+		float					m_opacity = 1.0f;
+		float					m_transform_scale = 1.0f;
+		std::vector<transition_spec>	m_transitions;
 
 	private:
 		void compute_font(const html_tag* el, const std::shared_ptr<document>& doc);
@@ -236,6 +241,7 @@ namespace litehtml
 		void set_list_style_image_baseurl(const string& url);
 
 		const background &get_bg() const;
+		background &get_bg_w();
 		void set_bg(const background &mBg);
 
 		pixel_t get_font_size() const;
@@ -292,6 +298,13 @@ namespace litehtml
 		string get_text_emphasis_style() const;
 		web_color get_text_emphasis_color() const;
 		int get_text_emphasis_position() const;
+
+		float get_opacity() const;
+		void set_opacity(float opacity);
+		float get_transform_scale() const;
+		void set_transform_scale(float scale);
+		const std::vector<transition_spec>& get_transitions() const;
+		void set_transitions(const std::vector<transition_spec>& transitions);
 	};
 
 	inline element_position css_properties::get_position() const
@@ -565,6 +578,11 @@ namespace litehtml
 		return m_bg;
 	}
 
+	inline background &css_properties::get_bg_w()
+	{
+		return m_bg;
+	}
+
 	inline void css_properties::set_bg(const background &mBg)
 	{
 		m_bg = mBg;
@@ -746,6 +764,36 @@ namespace litehtml
 	inline int css_properties::get_text_emphasis_position() const
 	{
 		return m_text_emphasis_position;
+	}
+
+	inline float css_properties::get_opacity() const
+	{
+		return m_opacity;
+	}
+
+	inline void css_properties::set_opacity(float opacity)
+	{
+		m_opacity = opacity;
+	}
+
+	inline float css_properties::get_transform_scale() const
+	{
+		return m_transform_scale;
+	}
+
+	inline void css_properties::set_transform_scale(float scale)
+	{
+		m_transform_scale = scale;
+	}
+
+	inline const std::vector<transition_spec>& css_properties::get_transitions() const
+	{
+		return m_transitions;
+	}
+
+	inline void css_properties::set_transitions(const std::vector<transition_spec>& transitions)
+	{
+		m_transitions = transitions;
 	}
 }
 

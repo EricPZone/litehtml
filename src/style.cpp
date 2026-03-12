@@ -523,6 +523,93 @@ void style::add_property(string_id name, const css_token_vector& value, const st
 		add_parsed_property(name, property_value(str, important));
 		break;
 
+	//  =============================  TRANSITION  =============================
+
+	// transition: <property> <duration> [<timing-function>]
+	// e.g. transition: background-color 200ms ease
+	// e.g. transition: all 0.3s ease-in-out
+	case _transition_:
+	{
+		// Parse: property-name duration [timing-function]
+		// We support a single transition (first in comma-separated list)
+		string prop_name;
+		float duration_ms = 0;
+		int timing = 1; // timing_ease
+
+		int tok_idx = 0;
+		// Skip to first comma group (ignore subsequent transitions)
+		// Property name (ident)
+		if (tok_idx < (int)value.size() && value[tok_idx].type == IDENT)
+		{
+			prop_name = value[tok_idx].name;
+			tok_idx++;
+		}
+		// Duration (number with unit: s or ms)
+		if (tok_idx < (int)value.size())
+		{
+			if (value[tok_idx].type == DIMENSION)
+			{
+				float num = value[tok_idx].n.number;
+				string unit = value[tok_idx].unit;
+				if (unit == "s") duration_ms = num * 1000.f;
+				else if (unit == "ms") duration_ms = num;
+				tok_idx++;
+			}
+			else if (value[tok_idx].type == NUMBER)
+			{
+				// 0 with no unit
+				tok_idx++;
+			}
+		}
+		// Timing function (ident)
+		if (tok_idx < (int)value.size() && value[tok_idx].type == IDENT)
+		{
+			string tf = value[tok_idx].name;
+			if (tf == "linear")       timing = 0;
+			else if (tf == "ease")    timing = 1;
+			else if (tf == "ease-in") timing = 2;
+			else if (tf == "ease-out") timing = 3;
+			else if (tf == "ease-in-out") timing = 4;
+		}
+
+		if (!prop_name.empty() && duration_ms > 0)
+		{
+			add_parsed_property(_transition_property_, property_value(prop_name, important));
+			add_parsed_property(_transition_duration_, property_value(duration_ms, important));
+			add_parsed_property(_transition_timing_function_, property_value(timing, important));
+		}
+		break;
+	}
+
+	case _opacity_:
+		if (val.type == NUMBER)
+			add_parsed_property(name, property_value(val.n.number, important));
+		break;
+
+	case _transform_:
+	{
+		// Parse only scale(X) — other transform functions are ignored
+		// CV_FUNCTION token: name="scale", value=[NUMBER]
+		if (value.size() >= 1 && value[0].type == CV_FUNCTION && value[0].name == "scale")
+		{
+			float scale_val = 1.0f;
+			const auto& args = value[0].value;
+			if (!args.empty())
+			{
+				if (args[0].type == NUMBER)
+					scale_val = args[0].n.number;
+				else if (args[0].type == PERCENTAGE)
+					scale_val = args[0].n.number / 100.0f;
+			}
+			add_parsed_property(_transform_scale_, property_value(scale_val, important));
+		}
+		else if (value.size() == 1 && value[0].type == IDENT && value[0].name == "none")
+		{
+			add_parsed_property(_transform_scale_, property_value(1.0f, important));
+		}
+		break;
+	}
+
 	//  =============================  CUSTOM PROPERTY  =============================
 
 	// https://drafts.csswg.org/css-variables-2/#defining-variables

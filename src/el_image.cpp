@@ -44,6 +44,23 @@ void litehtml::el_image::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position
 	{
 		if (pos.width > 0 && pos.height > 0)
 		{
+			float scale = css().get_transform_scale();
+			bool has_transform = (std::abs(scale - 1.0f) > 1e-4f);
+			if (has_transform)
+			{
+				position border_box = pos;
+				border_box += ri->get_paddings();
+				border_box += ri->get_borders();
+				float cx = border_box.x + border_box.width * 0.5f;
+				float cy = border_box.y + border_box.height * 0.5f;
+				get_document()->container()->set_transform(scale, cx, cy);
+			}
+
+			float opacity = css().get_opacity();
+			bool has_opacity = (opacity < 1.0f - 1e-3f);
+			if (has_opacity)
+				get_document()->container()->set_opacity(opacity);
+
 			background_layer layer;
 			layer.clip_box = pos;
 			layer.origin_box = pos;
@@ -53,6 +70,12 @@ void litehtml::el_image::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position
 			layer.repeat = background_repeat_no_repeat;
 			layer.border_radius = css().get_borders().radius.calc_percents(layer.border_box.width, layer.border_box.height);
 			get_document()->container()->draw_image(hdc, layer, m_src, {});
+
+			if (has_opacity)
+				get_document()->container()->reset_opacity();
+
+			if (has_transform)
+				get_document()->container()->reset_transform();
 		}
 	}
 }

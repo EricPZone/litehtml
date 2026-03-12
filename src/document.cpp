@@ -27,6 +27,9 @@
 #include "render_block.h"
 #include "document_container.h"
 #include "types.h"
+#include "css_transition.h"
+#include <cmath>
+#include <algorithm>
 
 namespace litehtml
 {
@@ -121,11 +124,111 @@ document::ptr document::createFromString(
 		// Apply media features.
 		doc->update_media_lists(doc->m_media);
 
-		// Apply parsed styles.
+		// Opt 7: Merge user styles into document styles for single-pass tree traversal
+		doc->m_styles.append_from(doc->m_user_css);
+		doc->m_styles.sort_selectors();
+
+		// Apply all document + user styles in one tree walk
 		doc->m_root->apply_stylesheet(doc->m_styles);
 
-		// Apply user styles if any
-		doc->m_root->apply_stylesheet(doc->m_user_css);
+		// Initialize element::m_css
+		doc->m_root->compute_styles();
+
+		// Create rendering tree
+		doc->m_root_render = doc->m_root->create_render_item(nullptr);
+
+		// Now the m_tabular_elements is filled with tabular elements.
+		// We have to check the tabular elements for missing table elements
+		// and create the anonymous boxes in visual table layout
+		doc->fix_tables_layout();
+
+		// Finally initialize elements
+		// init() returns pointer to the render_init element because it can change its type
+		if(doc->m_root_render)
+		{
+			doc->m_root_render = doc->m_root_render->init();
+		}
+	}
+
+	return doc;
+}
+
+document::ptr document::createFromString(
+	const estring& str,
+	document_container* container,
+	const litehtml::css& cached_master_css,
+	const string& user_styles )
+{
+	// Create litehtml::document
+	document::ptr doc = make_shared<document>(container);
+
+	// Parse document into GumboOutput
+	GumboOutput* output = doc->parse_html(str);
+
+	// mode must be set before doc->create_node because it is used in html_tag::set_attr
+	switch (output->document->v.document.doc_type_quirks_mode)
+	{
+	case GUMBO_DOCTYPE_NO_QUIRKS:      doc->m_mode = no_quirks_mode;      break;
+	case GUMBO_DOCTYPE_QUIRKS:         doc->m_mode = quirks_mode;         break;
+	case GUMBO_DOCTYPE_LIMITED_QUIRKS: doc->m_mode = limited_quirks_mode; break;
+	}
+
+	// Create litehtml::elements.
+	elements_list root_elements;
+	doc->create_node(output->root, root_elements, true, true);
+	if (!root_elements.empty())
+	{
+		doc->m_root = root_elements.back();
+	}
+
+	// Destroy GumboOutput
+	gumbo_destroy_output(&kGumboDefaultOptions, output);
+
+	// Use pre-parsed master CSS (skip parsing)
+	doc->m_master_css = cached_master_css;
+
+	if (user_styles != "")
+	{
+		doc->m_user_css.parse_css_stylesheet(user_styles, "", doc);
+		doc->m_user_css.sort_selectors();
+	}
+
+	// Let's process created elements tree
+	if (doc->m_root)
+	{
+		doc->container()->get_media_features(doc->m_media);
+
+		doc->m_root->set_pseudo_class(_root_, true);
+
+		// apply master CSS
+		doc->m_root->apply_stylesheet(doc->m_master_css);
+
+		// parse elements attributes
+		doc->m_root->parse_attributes();
+
+		// parse style sheets linked in document
+		for (const auto& css : doc->m_css)
+		{
+			media_query_list_list::ptr media;
+			if (css.media != "")
+			{
+				auto mq_list = parse_media_query_list(css.media, doc);
+				media = make_shared<media_query_list_list>();
+				media->add(mq_list);
+			}
+			doc->m_styles.parse_css_stylesheet(css.text, css.baseurl, doc, media);
+		}
+		doc->m_styles.sort_selectors();
+
+		// Apply media features.
+		doc->update_media_lists(doc->m_media);
+
+		// Opt 7: Merge user styles into document styles for single-pass tree traversal
+		doc->m_styles.append_from(doc->m_user_css);
+		doc->m_styles.sort_selectors();
+
+		// Apply all document + user styles in one tree walk
+		doc->m_root->apply_stylesheet(doc->m_styles);
 
 		// Initialize element::m_css
 		doc->m_root->compute_styles();
@@ -1145,6 +1248,72 @@ void document::append_children_from_string(element& parent, const char* str, boo
 	// We have to check the tabular elements for missing table elements
 	// and create the anonymous boxes in visual table layout
 	fix_tables_layout();
+}
+
+// Advance all active CSS transitions in the element tree.
+// Returns true if any transition is still active (caller should redraw).
+static bool tick_element(litehtml::element::ptr el, double timestamp_ms)
+{
+	bool any_active = false;
+
+	auto& transitions = el->m_active_transitions;
+	for (auto it = transitions.begin(); it != transitions.end(); )
+	{
+		auto& tr = *it;
+
+		// Initialize start time on first tick
+		if (tr.start_time < 0)
+			tr.start_time = timestamp_ms;
+
+		float elapsed = (float)(timestamp_ms - tr.start_time);
+		float t = (tr.duration_ms > 0) ? std::min(elapsed / tr.duration_ms, 1.0f) : 1.0f;
+		float eased = litehtml::apply_easing(tr.timing, t);
+
+		if (tr.property == litehtml::_background_color_)
+		{
+			el->css_w().get_bg_w().m_color = litehtml::lerp_color(tr.old_color, tr.new_color, eased);
+		}
+		else if (tr.property == litehtml::_opacity_)
+		{
+			el->css_w().set_opacity(litehtml::lerp_float(tr.old_opacity, tr.new_opacity, eased));
+		}
+		else if (tr.property == litehtml::_transform_)
+		{
+			el->css_w().set_transform_scale(litehtml::lerp_float(tr.old_scale, tr.new_scale, eased));
+		}
+
+		if (t >= 1.0f)
+		{
+			// Transition finished — set final value and remove
+			if (tr.property == litehtml::_background_color_)
+				el->css_w().get_bg_w().m_color = tr.new_color;
+			else if (tr.property == litehtml::_opacity_)
+				el->css_w().set_opacity(tr.new_opacity);
+			else if (tr.property == litehtml::_transform_)
+				el->css_w().set_transform_scale(tr.new_scale);
+			it = transitions.erase(it);
+		}
+		else
+		{
+			any_active = true;
+			++it;
+		}
+	}
+
+	// Recurse children
+	for (auto& child : el->children())
+	{
+		if (tick_element(child, timestamp_ms))
+			any_active = true;
+	}
+
+	return any_active;
+}
+
+bool document::tick(double timestamp_ms)
+{
+	if (!m_root) return false;
+	return tick_element(m_root, timestamp_ms);
 }
 
 void document::dump(dumper& cout)

@@ -295,6 +295,25 @@ void litehtml::html_tag::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position
 	pos.x	+= x;
 	pos.y	+= y;
 
+	float scale = m_css.get_transform_scale();
+	bool has_transform = (std::abs(scale - 1.0f) > 1e-4f);
+	if (has_transform)
+	{
+		position border_box = pos;
+		border_box += ri->get_paddings();
+		border_box += ri->get_borders();
+		float cx = border_box.x + border_box.width * 0.5f;
+		float cy = border_box.y + border_box.height * 0.5f;
+		get_document()->container()->set_transform(scale, cx, cy);
+	}
+
+	float opacity = m_css.get_opacity();
+	bool has_opacity = (opacity < 1.0f - 1e-3f);
+	if (has_opacity)
+	{
+		get_document()->container()->set_opacity(opacity);
+	}
+
 	draw_background(hdc, x, y, clip, ri);
 
 	if(m_css.get_display() == display_list_item &&
@@ -320,6 +339,16 @@ void litehtml::html_tag::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position
 		{
 			get_document()->container()->del_clip();
 		}
+	}
+
+	if (has_opacity)
+	{
+		get_document()->container()->reset_opacity();
+	}
+
+	if (has_transform)
+	{
+		get_document()->container()->reset_transform();
 	}
 }
 
@@ -1008,6 +1037,20 @@ bool litehtml::html_tag::set_pseudo_class( string_id cls, bool add )
 			m_pseudo_classes.erase(pi);
 			ret = true;
 		}
+	}
+	if (ret)
+	{
+		m_styles_dirty = true; // Opt 6: mark this element for targeted style update
+		// Pseudo-class changes (e.g. :hover) can affect descendant selectors (td:hover img)
+		// so propagate dirty to all descendants
+		std::function<void(element::ptr)> propagate = [&](element::ptr el) {
+			for (auto& child : el->children())
+			{
+				child->set_styles_dirty();
+				propagate(child);
+			}
+		};
+		propagate(shared_from_this());
 	}
 	return ret;
 }

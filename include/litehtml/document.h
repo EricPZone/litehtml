@@ -107,12 +107,20 @@ namespace litehtml
 
 		void							append_children_from_string(element& parent, const char* str, bool replace_existing);
 		void							dump(dumper& cout);
+		bool							tick(double timestamp_ms);
 
 		// see doc/document_createFromString.txt
 		static document::ptr  createFromString(
 			const estring&       str,
 			document_container*  container,
 			const string&        master_styles = litehtml::master_css,
+			const string&        user_styles = "");
+
+		// Overload with pre-parsed master CSS (avoids re-parsing)
+		static document::ptr  createFromString(
+			const estring&       str,
+			document_container*  container,
+			const litehtml::css& cached_master_css,
 			const string&        user_styles = "");
 
 	private:

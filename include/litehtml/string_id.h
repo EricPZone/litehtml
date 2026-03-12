@@ -310,6 +310,14 @@ STRING_ID(
 	_counter_reset_,
 	_counter_increment_,
 
+	_transition_,
+	_transition_property_,
+	_transition_duration_,
+	_transition_timing_function_,
+	_opacity_,
+	_transform_,
+	_transform_scale_,
+
 	// some CSS dimensions
 	_deg_,
 	_grad_,

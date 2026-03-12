@@ -68,6 +68,10 @@ namespace litehtml
 
 		virtual void				get_media_features(litehtml::media_features& media) const = 0;
 		virtual void				get_language(litehtml::string& language, litehtml::string& culture) const = 0;
+		virtual void				set_opacity(float /*opacity*/) {}
+		virtual void				reset_opacity() {}
+		virtual void				set_transform(float /*scale*/, float /*cx*/, float /*cy*/) {}
+		virtual void				reset_transform() {}
 		virtual litehtml::string	resolve_color(const litehtml::string& /*color*/) const { return litehtml::string(); }
 		virtual void				split_text(const char* text, const std::function<void(const char*)>& on_word, const std::function<void(const char*)>& on_space);
 

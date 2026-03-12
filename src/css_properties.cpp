@@ -252,6 +252,40 @@ void litehtml::css_properties::compute(const html_tag* el, const document::ptr& 
 
 	m_order = el->get_property<int>(_order_, false, 0, offset(m_order));
 
+	m_opacity = el->get_property<float>(_opacity_, false, 1.0f, offset(m_opacity));
+	if (m_opacity < 0.f) m_opacity = 0.f;
+	if (m_opacity > 1.f) m_opacity = 1.f;
+
+	m_transform_scale = el->get_property<float>(_transform_scale_, false, 1.0f, offset(m_transform_scale));
+
+	// Build transition specs from parsed sub-properties
+	m_transitions.clear();
+	{
+		string prop_str = el->get_property<string>(_transition_property_, false, "", offset(m_transitions));
+		if (!prop_str.empty())
+		{
+			float dur_ms = el->get_property<float>(_transition_duration_, false, 0.f, offset(m_opacity));
+			int timing_int = el->get_property<int>(_transition_timing_function_, false, (int)timing_ease, offset(m_order));
+
+			transition_spec spec;
+			spec.duration_ms = dur_ms;
+			spec.timing = (transition_timing)timing_int;
+
+			if (prop_str == "all")
+			{
+				spec.is_all = true;
+			}
+			else
+			{
+				spec.property = _id(prop_str);
+			}
+			if (spec.duration_ms > 0)
+			{
+				m_transitions.push_back(spec);
+			}
+		}
+	}
+
 	compute_background(el, doc);
 	compute_flex(el, doc);
 }
